@@ -20,6 +20,10 @@
 #endif
 #endif
 
+#ifdef __F16C__
+#define USE_F16C
+#endif
+
 #if defined(USE_AVX) || defined(USE_SSE)
 #ifdef _MSC_VER
 #include <intrin.h>
@@ -123,6 +127,8 @@ static bool AVX512Capable() {
 
 namespace hnswlib {
 typedef size_t labeltype;
+typedef uint16_t float16_t;
+typedef uint8_t float8_t;
 
 // This can be extended to store state for filtering (e.g. from a std::set)
 class BaseFilterFunctor {

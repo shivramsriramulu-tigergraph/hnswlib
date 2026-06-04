@@ -321,4 +321,105 @@ class L2SpaceI : public SpaceInterface<int> {
 
     ~L2SpaceI() {}
 };
+// ===== float16 support =====
+
+static inline float fp16_to_fp32(uint16_t h) {
+    uint32_t sign = (uint32_t)(h >> 15) << 31;
+    uint32_t exp  = (h >> 10) & 0x1fu;
+    uint32_t mant = (uint32_t)(h & 0x3ffu) << 13;
+    uint32_t f;
+    if (exp == 0)       f = sign | mant;
+    else if (exp == 31) f = sign | 0x7f800000u | mant;
+    else                f = sign | ((exp + 127u - 15u) << 23) | mant;
+    float r; memcpy(&r, &f, sizeof(float)); return r;
+}
+
+static float L2SqrFp16(const void *pVect1v, const void *pVect2v, const void *qty_ptr) {
+    float16_t *pVect1 = (float16_t *) pVect1v;
+    float16_t *pVect2 = (float16_t *) pVect2v;
+    size_t qty = *((size_t *) qty_ptr);
+    float res = 0;
+    for (size_t i = 0; i < qty; i++) {
+        float d = fp16_to_fp32(*pVect1++) - fp16_to_fp32(*pVect2++);
+        res += d * d;
+    }
+    return res;
+}
+
+#if defined(USE_F16C)
+static float L2SqrFp16_F16C(const void *pVect1v, const void *pVect2v, const void *qty_ptr) {
+    float16_t *pVect1 = (float16_t *) pVect1v;
+    float16_t *pVect2 = (float16_t *) pVect2v;
+    size_t qty = *((size_t *) qty_ptr);
+    float PORTABLE_ALIGN32 TmpRes[8];
+    size_t qty8 = qty >> 3;
+    const float16_t *pEnd1 = pVect1 + (qty8 << 3);
+
+    __m256 sum = _mm256_setzero_ps();
+    while (pVect1 < pEnd1) {
+        __m256 v1 = _mm256_cvtph_ps(_mm_loadu_si128((__m128i const *) pVect1));
+        __m256 v2 = _mm256_cvtph_ps(_mm_loadu_si128((__m128i const *) pVect2));
+        __m256 diff = _mm256_sub_ps(v1, v2);
+        sum = _mm256_add_ps(sum, _mm256_mul_ps(diff, diff));
+        pVect1 += 8; pVect2 += 8;
+    }
+    _mm256_store_ps(TmpRes, sum);
+    float res = TmpRes[0] + TmpRes[1] + TmpRes[2] + TmpRes[3] +
+                TmpRes[4] + TmpRes[5] + TmpRes[6] + TmpRes[7];
+
+    size_t qty_left = qty - (qty8 << 3);
+    res += L2SqrFp16(pVect1, pVect2, &qty_left);
+    return res;
+}
+#endif
+
+class L2SpaceFp16 : public SpaceInterface<float> {
+    DISTFUNC<float> fstdistfunc_;
+    size_t data_size_;
+    size_t dim_;
+ public:
+    L2SpaceFp16(size_t dim) {
+        fstdistfunc_ = L2SqrFp16;
+#if defined(USE_F16C)
+        fstdistfunc_ = L2SqrFp16_F16C;
+#endif
+        dim_ = dim;
+        data_size_ = dim * sizeof(float16_t);
+    }
+    size_t get_data_size() { return data_size_; }
+    DISTFUNC<float> get_dist_func() { return fstdistfunc_; }
+    void *get_dist_func_param() { return &dim_; }
+    ~L2SpaceFp16() {}
+};
+
+// ===== float8 support =====
+
+static float L2SqrFp8(const void *pVect1v, const void *pVect2v, const void *qty_ptr) {
+    float8_t *pVect1 = (float8_t *) pVect1v;
+    float8_t *pVect2 = (float8_t *) pVect2v;
+    size_t qty = *((size_t *) qty_ptr);
+    float res = 0;
+    for (size_t i = 0; i < qty; i++) {
+        float d = (float)(*pVect1++) - (float)(*pVect2++);
+        res += d * d;
+    }
+    return res;
+}
+
+class L2SpaceFp8 : public SpaceInterface<float> {
+    DISTFUNC<float> fstdistfunc_;
+    size_t data_size_;
+    size_t dim_;
+ public:
+    L2SpaceFp8(size_t dim) {
+        fstdistfunc_ = L2SqrFp8;
+        dim_ = dim;
+        data_size_ = dim * sizeof(float8_t);
+    }
+    size_t get_data_size() { return data_size_; }
+    DISTFUNC<float> get_dist_func() { return fstdistfunc_; }
+    void *get_dist_func_param() { return &dim_; }
+    ~L2SpaceFp8() {}
+};
+
 }  // namespace hnswlib
