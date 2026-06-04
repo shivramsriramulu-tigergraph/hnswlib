@@ -61,8 +61,55 @@ int main() {
     }
     std::cout << "\n";
 
+    // --- float16 inner product test ---
+    hnswlib::InnerProductSpaceFp16 space_ip_fp16(dim);
+    hnswlib::HierarchicalNSW<float>* index_ip_fp16 =
+        new hnswlib::HierarchicalNSW<float>(&space_ip_fp16, num_vectors);
+
+    for (int i = 0; i < num_vectors; i++) {
+        std::vector<hnswlib::float16_t> vec(dim);
+        for (int j = 0; j < dim; j++) {
+            float val = (float)(i * dim + j) * 0.01f;
+            uint32_t bits; memcpy(&bits, &val, 4);
+            vec[j] = (uint16_t)(((bits >> 16) & 0x8000) |
+                     (((bits & 0x7f800000) - 0x38000000) >> 13) |
+                     ((bits >> 13) & 0x03ff));
+        }
+        index_ip_fp16->addPoint(vec.data(), i);
+    }
+    std::vector<hnswlib::float16_t> query_ip(dim, 0);
+    auto result_ip = index_ip_fp16->searchKnn(query_ip.data(), k);
+    std::cout << "fp16 IP  top-" << k << " neighbors: ";
+    while (!result_ip.empty()) {
+        std::cout << result_ip.top().second << "(" << result_ip.top().first << ") ";
+        result_ip.pop();
+    }
+    std::cout << "\n";
+
+    // --- float8 inner product test ---
+    hnswlib::InnerProductSpaceFp8 space_ip_fp8(dim);
+    hnswlib::HierarchicalNSW<float>* index_ip_fp8 =
+        new hnswlib::HierarchicalNSW<float>(&space_ip_fp8, num_vectors);
+
+    for (int i = 0; i < num_vectors; i++) {
+        std::vector<hnswlib::float8_t> vec(dim);
+        for (int j = 0; j < dim; j++)
+            vec[j] = (hnswlib::float8_t)((i + j) % 256);
+        index_ip_fp8->addPoint(vec.data(), i);
+    }
+    std::vector<hnswlib::float8_t> query_ip8(dim, 0);
+    auto result_ip8 = index_ip_fp8->searchKnn(query_ip8.data(), k);
+    std::cout << "fp8  IP  top-" << k << " neighbors: ";
+    while (!result_ip8.empty()) {
+        std::cout << result_ip8.top().second << "(" << result_ip8.top().first << ") ";
+        result_ip8.pop();
+    }
+    std::cout << "\n";
+
     delete index_fp16;
     delete index_fp8;
+    delete index_ip_fp16;
+    delete index_ip_fp8;
     std::cout << "PASSED\n";
     return 0;
 }

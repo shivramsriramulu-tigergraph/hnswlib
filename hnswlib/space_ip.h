@@ -397,4 +397,101 @@ class InnerProductSpace : public SpaceInterface<float> {
 ~InnerProductSpace() {}
 };
 
+// ===== float16 inner product =====
+
+static float InnerProductFp16(const void *pVect1v, const void *pVect2v, const void *qty_ptr) {
+    float16_t *pVect1 = (float16_t *) pVect1v;
+    float16_t *pVect2 = (float16_t *) pVect2v;
+    size_t qty = *((size_t *) qty_ptr);
+    float res = 0;
+    for (size_t i = 0; i < qty; i++)
+        res += fp16_to_fp32(*pVect1++) * fp16_to_fp32(*pVect2++);
+    return res;
+}
+
+static float InnerProductDistanceFp16(const void *pVect1v, const void *pVect2v, const void *qty_ptr) {
+    return 1.0f - InnerProductFp16(pVect1v, pVect2v, qty_ptr);
+}
+
+#if defined(USE_F16C)
+static float InnerProductFp16_F16C(const void *pVect1v, const void *pVect2v, const void *qty_ptr) {
+    float16_t *pVect1 = (float16_t *) pVect1v;
+    float16_t *pVect2 = (float16_t *) pVect2v;
+    size_t qty = *((size_t *) qty_ptr);
+    float PORTABLE_ALIGN32 TmpRes[8];
+    size_t qty8 = qty >> 3;
+    const float16_t *pEnd1 = pVect1 + (qty8 << 3);
+
+    __m256 sum = _mm256_setzero_ps();
+    while (pVect1 < pEnd1) {
+        __m256 v1 = _mm256_cvtph_ps(_mm_loadu_si128((__m128i const *) pVect1));
+        __m256 v2 = _mm256_cvtph_ps(_mm_loadu_si128((__m128i const *) pVect2));
+        sum = _mm256_add_ps(sum, _mm256_mul_ps(v1, v2));
+        pVect1 += 8; pVect2 += 8;
+    }
+    _mm256_store_ps(TmpRes, sum);
+    float res = TmpRes[0] + TmpRes[1] + TmpRes[2] + TmpRes[3] +
+                TmpRes[4] + TmpRes[5] + TmpRes[6] + TmpRes[7];
+
+    size_t qty_left = qty - (qty8 << 3);
+    res += InnerProductFp16(pVect1, pVect2, &qty_left);
+    return res;
+}
+
+static float InnerProductDistanceFp16_F16C(const void *pVect1v, const void *pVect2v, const void *qty_ptr) {
+    return 1.0f - InnerProductFp16_F16C(pVect1v, pVect2v, qty_ptr);
+}
+#endif
+
+class InnerProductSpaceFp16 : public SpaceInterface<float> {
+    DISTFUNC<float> fstdistfunc_;
+    size_t data_size_;
+    size_t dim_;
+ public:
+    InnerProductSpaceFp16(size_t dim) {
+        fstdistfunc_ = InnerProductDistanceFp16;
+#if defined(USE_F16C)
+        fstdistfunc_ = InnerProductDistanceFp16_F16C;
+#endif
+        dim_ = dim;
+        data_size_ = dim * sizeof(float16_t);
+    }
+    size_t get_data_size() { return data_size_; }
+    DISTFUNC<float> get_dist_func() { return fstdistfunc_; }
+    void *get_dist_func_param() { return &dim_; }
+    ~InnerProductSpaceFp16() {}
+};
+
+// ===== float8 inner product =====
+
+static float InnerProductFp8(const void *pVect1v, const void *pVect2v, const void *qty_ptr) {
+    float8_t *pVect1 = (float8_t *) pVect1v;
+    float8_t *pVect2 = (float8_t *) pVect2v;
+    size_t qty = *((size_t *) qty_ptr);
+    float res = 0;
+    for (size_t i = 0; i < qty; i++)
+        res += (float)(*pVect1++) * (float)(*pVect2++);
+    return res;
+}
+
+static float InnerProductDistanceFp8(const void *pVect1v, const void *pVect2v, const void *qty_ptr) {
+    return 1.0f - InnerProductFp8(pVect1v, pVect2v, qty_ptr);
+}
+
+class InnerProductSpaceFp8 : public SpaceInterface<float> {
+    DISTFUNC<float> fstdistfunc_;
+    size_t data_size_;
+    size_t dim_;
+ public:
+    InnerProductSpaceFp8(size_t dim) {
+        fstdistfunc_ = InnerProductDistanceFp8;
+        dim_ = dim;
+        data_size_ = dim * sizeof(float8_t);
+    }
+    size_t get_data_size() { return data_size_; }
+    DISTFUNC<float> get_dist_func() { return fstdistfunc_; }
+    void *get_dist_func_param() { return &dim_; }
+    ~InnerProductSpaceFp8() {}
+};
+
 }  // namespace hnswlib
