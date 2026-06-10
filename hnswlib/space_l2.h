@@ -324,13 +324,24 @@ class L2SpaceI : public SpaceInterface<int> {
 // ===== float16 support =====
 
 static inline float fp16_to_fp32(uint16_t h) {
-    uint32_t sign = (uint32_t)(h >> 15) << 31;
+    uint32_t sign = (uint32_t)(h & 0x8000u) << 16;
     uint32_t exp  = (h >> 10) & 0x1fu;
-    uint32_t mant = (uint32_t)(h & 0x3ffu) << 13;
+    uint32_t mant = h & 0x3ffu;
     uint32_t f;
-    if (exp == 0)       f = sign | mant;
-    else if (exp == 31) f = sign | 0x7f800000u | mant;
-    else                f = sign | ((exp + 127u - 15u) << 23) | mant;
+    if (exp == 0) {
+        if (mant == 0) {
+            f = sign;
+        } else {
+            exp = 1;
+            while ((mant & 0x400u) == 0) { mant <<= 1; --exp; }
+            mant &= 0x3ffu;
+            f = sign | ((exp + 127u - 15u) << 23) | (mant << 13);
+        }
+    } else if (exp == 31) {
+        f = sign | 0x7f800000u | (mant << 13);
+    } else {
+        f = sign | ((exp + 127u - 15u) << 23) | (mant << 13);
+    }
     float r; memcpy(&r, &f, sizeof(float)); return r;
 }
 

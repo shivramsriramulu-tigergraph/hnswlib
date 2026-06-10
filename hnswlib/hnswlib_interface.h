@@ -6,6 +6,7 @@
 #include <thread>
 #include <atomic>
 #include <stdlib.h>
+#include <cstring>
 #include <assert.h>
 #include <functional>
 
@@ -94,6 +95,9 @@ class Index {
 
     Index(const std::string &space_name, const int dim, const std::string& data_type = "float32") : space_name(space_name), dim(dim) {
         normalize = false;
+        if (data_type != "float32" && data_type != "float16" && data_type != "float8") {
+            throw std::runtime_error("data_type must be one of: float32, float16, float8");
+        }
         if (space_name == "l2") {
             if (data_type == "float16")
                 l2space = new hnswlib::L2SpaceFp16(dim);
